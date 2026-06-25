@@ -1,0 +1,14 @@
+{
+  "name": "zbackup-dashboard",
+  "version": "1.0.0",
+  "description": "Database Backup Dashboard for Z-Ecosystem",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "basic-auth": "^2.0.1"
+  }
+}

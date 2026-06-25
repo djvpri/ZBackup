@@ -1,0 +1,7 @@
+# Setup
+setup:
+  - apt-get update -qq && apt-get install -y -qq postgresql-client-18
+build:
+  command: npm install
+start:
+  command: node server.js

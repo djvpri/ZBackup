@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZBackup Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { font-family: 'Inter', sans-serif; }
+    .glass { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+    .glow { box-shadow: 0 0 20px rgba(99, 102, 241, 0.15); }
+    .stat-card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.3); }
+    .backup-row:hover { background: rgba(99, 102, 241, 0.1); }
+    .pulse { animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .progress-bar { transition: width 0.5s ease; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+  </style>
+</head>
+<body class="bg-gray-950 text-white min-h-screen">
+  <!-- Header -->
+  <header class="border-b border-gray-800 bg-gray-900/50 backdrop-blur-lg sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center text-xl">💾</div>
+        <div>
+          <h1 class="text-xl font-bold">ZBackup</h1>
+          <p class="text-xs text-gray-400">Database Backup Dashboard</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <span id="status-badge" class="px-3 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-400 border border-green-500/30">● Online</span>
+        <button onclick="runAllBackups()" id="btn-backup-all" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-sm font-medium transition-all flex items-center gap-2">
+          <span id="backup-icon">⚡</span> Backup Semua
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 py-6">
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div class="stat-card glass rounded-xl p-4 transition-all cursor-pointer" onclick="showTab('backups')">
+        <div class="text-gray-400 text-xs mb-1">Total Backup</div>
+        <div class="text-2xl font-bold" id="stat-total">-</div>
+        <div class="text-xs text-gray-500" id="stat-total-size">-</div>
+      </div>
+      <div class="stat-card glass rounded-xl p-4 transition-all">
+        <div class="text-gray-400 text-xs mb-1">Database Aktif</div>
+        <div class="text-2xl font-bold" id="stat-dbs">-</div>
+        <div class="text-xs text-gray-500">Railway PostgreSQL</div>
+      </div>
+      <div class="stat-card glass rounded-xl p-4 transition-all">
+        <div class="text-gray-400 text-xs mb-1">Backup 7 Hari</div>
+        <div class="text-2xl font-bold" id="stat-recent">-</div>
+        <div class="text-xs text-gray-500">Harian jam 03:00</div>
+      </div>
+      <div class="stat-card glass rounded-xl p-4 transition-all">
+        <div class="text-gray-400 text-xs mb-1">Disk Space</div>
+        <div class="text-2xl font-bold" id="stat-disk">-</div>
+        <div class="text-xs text-gray-500" id="stat-disk-detail">-</div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="flex gap-2 mb-6 border-b border-gray-800 pb-2">
+      <button onclick="showTab('backups')" class="tab-btn px-4 py-2 rounded-lg text-sm font-medium transition-all bg-indigo-600/20 text-indigo-400 border border-indigo-500/30" data-tab="backups">📋 Semua Backup</button>
+      <button onclick="showTab('databases')" class="tab-btn px-4 py-2 rounded-lg text-sm font-medium transition-all text-gray-400 hover:text-white" data-tab="databases">🗄️ Database</button>
+      <button onclick="showTab('logs')" class="tab-btn px-4 py-2 rounded-lg text-sm font-medium transition-all text-gray-400 hover:text-white" data-tab="logs">📜 Log</button>
+      <button onclick="showTab('settings')" class="tab-btn px-4 py-2 rounded-lg text-sm font-medium transition-all text-gray-400 hover:text-white" data-tab="settings">⚙️ Settings</button>
+    </div>
+
+    <!-- Tab: Backups -->
+    <div id="tab-backups" class="tab-content">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex gap-2">
+          <select id="filter-db" onchange="filterBackups()" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm">
+            <option value="">Semua Database</option>
+          </select>
+          <input type="text" id="search-backup" onkeyup="filterBackups()" placeholder="🔍 Cari backup..." class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm w-64">
+        </div>
+        <button onclick="runAllBackups()" class="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-sm transition-all">🔄 Refresh</button>
+      </div>
+      
+      <div class="glass rounded-xl overflow-hidden">
+        <table class="w-full">
+          <thead>
+            <tr class="border-b border-gray-700 text-left text-xs text-gray-400 uppercase">
+              <th class="px-4 py-3">Database</th>
+              <th class="px-4 py-3">Ukuran</th>
+              <th class="px-4 py-3">Tanggal</th>
+              <th class="px-4 py-3 text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody id="backup-list">
+            <tr><td colspan="4" class="px-4 py-8 text-center text-gray-500">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab: Databases -->
+    <div id="tab-databases" class="tab-content hidden">
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="db-list"></div>
+    </div>
+
+    <!-- Tab: Logs -->
+    <div id="tab-logs" class="tab-content hidden">
+      <div class="glass rounded-xl p-4">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="font-semibold">Backup Logs</h3>
+          <button onclick="loadLogs()" class="text-sm text-indigo-400 hover:text-indigo-300">🔄 Refresh</button>
+        </div>
+        <pre id="log-content" class="text-xs text-gray-300 bg-gray-900/50 rounded-lg p-4 max-h-96 overflow-y-auto font-mono">Loading...</pre>
+      </div>
+    </div>
+
+    <!-- Tab: Settings -->
+    <div id="tab-settings" class="tab-content hidden">
+      <div class="glass rounded-xl p-6 max-w-2xl">
+        <h3 class="font-semibold mb-4">Pengaturan Backup</h3>
+        <div class="space-y-4">
+          <div>
+            <label class="text-sm text-gray-400">Backup Directory</label>
+            <div class="mt-1 px-3 py-2 bg-gray-800 rounded-lg text-sm font-mono">/data/workspace/backups</div>
+          </div>
+          <div>
+            <label class="text-sm text-gray-400">Cron Schedule</label>
+            <div class="mt-1 px-3 py-2 bg-gray-800 rounded-lg text-sm font-mono">0 3 * * * (Jam 03:00 WIB)</div>
+          </div>
+          <div>
+            <label class="text-sm text-gray-400">Retention Policy</label>
+            <div class="mt-1 px-3 py-2 bg-gray-800 rounded-lg text-sm">30 hari</div>
+          </div>
+          <div>
+            <label class="text-sm text-gray-400">pg_dump Version</label>
+            <div class="mt-1 px-3 py-2 bg-gray-800 rounded-lg text-sm font-mono">PostgreSQL 18.4</div>
+          </div>
+          <div>
+            <label class="text-sm text-gray-400">Railway Projects</label>
+            <div class="mt-1 px-3 py-2 bg-gray-800 rounded-lg text-sm">17 projects terdaftar</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Modal -->
+  <div id="modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden items-center justify-center z-50" onclick="closeModal(event)">
+    <div class="glass rounded-2xl p-6 max-w-md w-full mx-4 glow" onclick="event.stopPropagation()">
+      <h3 id="modal-title" class="text-lg font-bold mb-2"></h3>
+      <p id="modal-body" class="text-gray-300 text-sm mb-4"></p>
+      <div id="modal-progress" class="hidden">
+        <div class="w-full bg-gray-700 rounded-full h-2 mb-2">
+          <div id="modal-progress-bar" class="bg-indigo-500 h-2 rounded-full progress-bar" style="width: 0%"></div>
+        </div>
+        <p id="modal-progress-text" class="text-xs text-gray-400"></p>
+      </div>
+      <div class="flex justify-end gap-2">
+        <button onclick="closeModal()" class="px-4 py-2 text-gray-400 hover:text-white text-sm">Batal</button>
+        <button id="modal-confirm" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-sm font-medium">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="fixed bottom-4 right-4 glass rounded-xl px-4 py-3 transform translate-y-20 opacity-0 transition-all duration-300 z-50">
+    <span id="toast-msg" class="text-sm"></span>
+  </div>
+
+  <script>
+    let allBackups = [];
+    let currentFilter = '';
+
+    // Load data
+    async function loadData() {
+      try {
+        const res = await fetch('/api/backups');
+        const data = await res.json();
+        allBackups = data.backups;
+        
+        // Update stats
+        document.getElementById('stat-total').textContent = data.stats.totalBackups;
+        document.getElementById('stat-total-size').textContent = data.stats.totalSize;
+        document.getElementById('stat-dbs').textContent = data.stats.totalDatabases;
+        document.getElementById('stat-disk').textContent = data.stats.disk.percent;
+        document.getElementById('stat-disk-detail').textContent = `${data.stats.disk.used} / ${data.stats.total}`;
+        
+        // Update filter dropdown
+        const select = document.getElementById('filter-db');
+        const currentVal = select.value;
+        select.innerHTML = '<option value="">Semua Database</option>';
+        data.databases.forEach(db => {
+          select.innerHTML += `<option value="${db}" ${currentVal === db ? 'selected' : ''}>${db}</option>`;
+        });
+        
+        renderBackups(data.backups);
+        loadStats();
+      } catch (e) {
+        console.error('Failed to load data:', e);
+      }
+    }
+
+    async function loadStats() {
+      try {
+        const res = await fetch('/api/stats');
+        const stats = await res.json();
+        document.getElementById('stat-recent').textContent = stats.recentBackups;
+      } catch {}
+    }
+
+    function renderBackups(backups) {
+      const tbody = document.getElementById('backup-list');
+      if (backups.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="px-4 py-8 text-center text-gray-500">Tidak ada backup ditemukan</td></tr>';
+        return;
+      }
+      
+      const dbColors = {
+        zgold: 'yellow', zbengkel: 'orange', zlaundry: 'blue', zone: 'indigo',
+        zpos: 'emerald', zgym: 'purple', zbilliar: 'red', zabsen: 'cyan',
+        zrooms: 'teal', zresto: 'rose', zmedics: 'pink', zface: 'violet',
+        ztrader: 'amber', zomet: 'sky', zbarber: 'lime'
+      };
+      
+      tbody.innerHTML = backups.map(b => {
+        const color = dbColors[b.database] || 'gray';
+        const date = new Date(b.createdAt).toLocaleString('id-ID');
+        return `
+          <tr class="backup-row border-b border-gray-800/50 transition-all">
+            <td class="px-4 py-3">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-${color}-400"></span>
+                <span class="font-medium">${b.database}</span>
+              </div>
+            </td>
+            <td class="px-4 py-3 text-gray-300">${b.sizeFormatted}</td>
+            <td class="px-4 py-3 text-gray-400 text-sm">${date}</td>
+            <td class="px-4 py-3 text-right">
+              <button onclick="downloadBackup('${b.filename}')" class="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-all mr-1" title="Download">⬇️</button>
+              <button onclick="confirmDelete('${b.filename}')" class="px-2 py-1 text-xs bg-red-900/50 hover:bg-red-800 rounded transition-all" title="Hapus">🗑️</button>
+            </td>
+          </tr>`;
+      }).join('');
+    }
+
+    function filterBackups() {
+      const db = document.getElementById('filter-db').value;
+      const search = document.getElementById('search-backup').value.toLowerCase();
+      let filtered = allBackups;
+      if (db) filtered = filtered.filter(b => b.database === db);
+      if (search) filtered = filtered.filter(b => b.filename.toLowerCase().includes(search));
+      renderBackups(filtered);
+    }
+
+    // Backup actions
+    async function runAllBackups() {
+      showModal('⚡ Backup Semua', 'Sedang membackup semua database... Harap tunggu.', null, true);
+      updateProgress(0, 'Memulai backup...');
+      
+      try {
+        const res = await fetch('/api/backup-all', { method: 'POST' });
+        const data = await res.json();
+        
+        updateProgress(100, `Selesai: ${data.success}/${data.total} berhasil`);
+        setTimeout(() => {
+          closeModal();
+          loadData();
+          showToast(data.success === data.total ? `✅ Semua ${data.total} database terbackup` : `⚠️ ${data.success}/${data.total} berhasil`);
+        }, 1500);
+      } catch (e) {
+        updateProgress(0, '❌ Gagal: ' + e.message);
+        setTimeout(closeModal, 2000);
+      }
+    }
+
+    async function runSingleBackup(db) {
+      showModal(`⚡ Backup ${db}`, `Membackup database ${db}...`, null, true);
+      updateProgress(50, 'Backup berjalan...');
+      
+      try {
+        const res = await fetch(`/api/backup/${db}`, { method: 'POST' });
+        const data = await res.json();
+        
+        if (data.success) {
+          updateProgress(100, `✅ Berhasil: ${data.sizeFormatted}`);
+        } else {
+          updateProgress(0, `❌ Gagal: ${data.error}`);
+        }
+        setTimeout(() => { closeModal(); loadData(); }, 1500);
+      } catch (e) {
+        updateProgress(0, '❌ Gagal: ' + e.message);
+        setTimeout(closeModal, 2000);
+      }
+    }
+
+    function downloadBackup(filename) {
+      window.open(`/api/download/${filename}`, '_blank');
+    }
+
+    function confirmDelete(filename) {
+      showModal('🗑️ Hapus Backup', `Hapus file backup ${filename}?`, () => deleteBackup(filename));
+    }
+
+    async function deleteBackup(filename) {
+      try {
+        await fetch(`/api/backup/${filename}`, { method: 'DELETE' });
+        showToast('✅ Backup dihapus');
+        loadData();
+        closeModal();
+      } catch (e) {
+        showToast('❌ Gagal hapus');
+      }
+    }
+
+    // Database list
+    async function loadDatabases() {
+      try {
+        const res = await fetch('/api/databases');
+        const dbs = await res.json();
+        document.getElementById('db-list').innerHTML = dbs.map(db => `
+          <div class="glass rounded-xl p-4 hover:glow transition-all">
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded-full bg-indigo-400"></span>
+                <span class="font-semibold">${db.name}</span>
+              </div>
+              <button onclick="runSingleBackup('${db.id}')" class="px-3 py-1 bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600 hover:text-white rounded-lg text-xs transition-all">⚡ Backup</button>
+            </div>
+            <div class="text-xs text-gray-500 font-mono truncate">${db.url}</div>
+          </div>
+        `).join('');
+      } catch (e) {
+        console.error('Failed to load databases:', e);
+      }
+    }
+
+    // Logs
+    async function loadLogs() {
+      try {
+        const res = await fetch('/api/logs');
+        const data = await res.json();
+        document.getElementById('log-content').textContent = data.logs.join('\n') || 'Belum ada log';
+      } catch (e) {
+        document.getElementById('log-content').textContent = 'Gagal memuat log';
+      }
+    }
+
+    // Tabs
+    function showTab(tab) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.tab-btn').forEach(el => {
+        el.classList.remove('bg-indigo-600/20', 'text-indigo-400', 'border', 'border-indigo-500/30');
+        el.classList.add('text-gray-400');
+      });
+      document.getElementById(`tab-${tab}`).classList.remove('hidden');
+      const btn = document.querySelector(`[data-tab="${tab}"]`);
+      btn.classList.add('bg-indigo-600/20', 'text-indigo-400', 'border', 'border-indigo-500/30');
+      btn.classList.remove('text-gray-400');
+      
+      if (tab === 'logs') loadLogs();
+      if (tab === 'databases') loadDatabases();
+    }
+
+    // Modal
+    function showModal(title, body, onConfirm, loading = false) {
+      document.getElementById('modal-title').textContent = title;
+      document.getElementById('modal-body').textContent = body;
+      document.getElementById('modal-progress').classList.toggle('hidden', !loading);
+      const confirmBtn = document.getElementById('modal-confirm');
+      if (onConfirm) {
+        confirmBtn.classList.remove('hidden');
+        confirmBtn.onclick = onConfirm;
+      } else {
+        confirmBtn.classList.add('hidden');
+      }
+      document.getElementById('modal').classList.remove('hidden');
+      document.getElementById('modal').classList.add('flex');
+    }
+
+    function closeModal(e) {
+      if (e && e.target !== e.currentTarget) return;
+      document.getElementById('modal').classList.add('hidden');
+      document.getElementById('modal').classList.remove('flex');
+    }
+
+    function updateProgress(percent, text) {
+      document.getElementById('modal-progress-bar').style.width = percent + '%';
+      document.getElementById('modal-progress-text').textContent = text;
+    }
+
+    // Toast
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      document.getElementById('toast-msg').textContent = msg;
+      toast.classList.remove('translate-y-20', 'opacity-0');
+      setTimeout(() => { toast.classList.add('translate-y-20', 'opacity-0'); }, 3000);
+    }
+
+    // Init
+    loadData();
+    setInterval(loadData, 60000); // Auto refresh 1 min
+  </script>
+</body>
+</html>
