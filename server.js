@@ -14,14 +14,6 @@ const PSQL = process.env.PSQL_PATH || '/usr/lib/postgresql/18/bin/psql';
 // ZBackup's own database
 const ZBACKUP_DB_URL = process.env.ZBACKUP_DATABASE_URL || 'postgresql://postgres:byqtvULmVrhVVkGZspyUguEAARYGglSc@thomas.proxy.rlwy.net:59427/railway';
 
-// Ensure SSL mode for Railway connections
-function ensureSSL(url) {
-  if (!url.includes('sslmode=')) {
-    return url + (url.includes('?') ? '&' : '?') + 'sslmode=require';
-  }
-  return url;
-}
-
 const pool = new Pool({ connectionString: ZBACKUP_DB_URL, ssl: { rejectUnauthorized: false } });
 
 // Database configurations for backups
@@ -198,7 +190,7 @@ app.post('/api/backup/:db', async (req, res) => {
   const filename = `${db}_${date}.sql`;
   const filepath = path.join(BACKUP_DIR, filename);
   try {
-    execSync(`"${PGDUMP}" "${ensureSSL(DATABASES[db].url)}" --no-owner --no-privileges --clean --if-exists -f "${filepath}"`, { timeout: 60000, encoding: 'utf8' });
+    execSync(`"${PGDUMP}" "${DATABASES[db].url}" --no-owner --no-privileges --clean --if-exists -f "${filepath}"`, { timeout: 60000, encoding: 'utf8', env: { ...process.env, PGSSLMODE: 'require' } });
     if (fs.existsSync(filepath) && fs.statSync(filepath).size > 0) {
       const size = fs.statSync(filepath).size;
       // Save to DB
@@ -222,7 +214,7 @@ app.post('/api/backup-all', async (req, res) => {
     const filename = `${key}_${date}.sql`;
     const filepath = path.join(BACKUP_DIR, filename);
     try {
-      execSync(`"${PGDUMP}" "${ensureSSL(db.url)}" --no-owner --no-privileges --clean --if-exists -f "${filepath}"`, { timeout: 60000, encoding: 'utf8' });
+      execSync(`"${PGDUMP}" "${db.url}" --no-owner --no-privileges --clean --if-exists -f "${filepath}"`, { timeout: 60000, encoding: 'utf8', env: { ...process.env, PGSSLMODE: 'require' } });
       const size = fs.existsSync(filepath) ? fs.statSync(filepath).size : 0;
       await pool.query('INSERT INTO backup_history (database, filename, size_bytes, status) VALUES ($1, $2, $3, $4)', [key, filename, size, 'success']).catch(() => {});
       results.push({ database: key, success: size > 0, filename, size: formatSize(size) });
@@ -244,7 +236,7 @@ app.post('/api/restore/:filename', async (req, res) => {
   if (!fs.existsSync(filepath)) return res.status(404).json({ error: 'Backup file not found' });
   const backupDb = filename.split('_').slice(0, -2).join('_');
   try {
-    execSync(`"${PSQL}" "${ensureSSL(DATABASES[targetDb].url)}" -f "${filepath}"`, { timeout: 120000, encoding: 'utf8' });
+    execSync(`"${PSQL}" "${DATABASES[targetDb].url}" -f "${filepath}"`, { timeout: 120000, encoding: 'utf8', env: { ...process.env, PGSSLMODE: 'require' } });
     await pool.query('INSERT INTO restore_history (filename, source_db, target_db, status) VALUES ($1, $2, $3, $4)', [filename, backupDb, targetDb, 'success']);
     res.json({ success: true, restoredTo: targetDb, filename });
   } catch (e) {
