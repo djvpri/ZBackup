@@ -188,6 +188,32 @@ app.delete('/api/backup/:filename', (req, res) => {
   }
 });
 
+// POST /api/restore/:filename - Restore a backup to a database
+app.post('/api/restore/:filename', (req, res) => {
+  const { filename } = req.params;
+  const { targetDb } = req.body;
+  
+  if (!filename.endsWith('.sql')) return res.status(400).json({ error: 'Invalid file' });
+  if (!targetDb || !DATABASES[targetDb]) return res.status(400).json({ error: 'Invalid target database' });
+  
+  const filepath = path.join(BACKUP_DIR, filename);
+  if (!fs.existsSync(filepath)) return res.status(404).json({ error: 'Backup file not found' });
+  
+  // Check if backup is for the same database
+  const backupDb = filename.split('_').slice(0, -2).join('_');
+  
+  try {
+    const psql = PGDUMP.replace('pg_dump', 'psql');
+    execSync(`${psql} "${DATABASES[targetDb].url}" -f "${filepath}"`, {
+      timeout: 120000, // 2 minutes for restore
+      encoding: 'utf8',
+    });
+    res.json({ success: true, restoredTo: targetDb, filename });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // GET /api/download/:filename - Download a backup file
 app.get('/api/download/:filename', (req, res) => {
   const filepath = path.join(BACKUP_DIR, req.params.filename);

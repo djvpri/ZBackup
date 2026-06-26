@@ -241,6 +241,7 @@
             <td class="px-4 py-3 text-gray-300">${b.sizeFormatted}</td>
             <td class="px-4 py-3 text-gray-400 text-sm">${date}</td>
             <td class="px-4 py-3 text-right">
+              <button onclick="confirmRestore('${b.filename}', '${b.database}')" class="px-2 py-1 text-xs bg-blue-900/50 hover:bg-blue-800 rounded transition-all mr-1" title="Restore">🔄</button>
               <button onclick="downloadBackup('${b.filename}')" class="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-all mr-1" title="Download">⬇️</button>
               <button onclick="confirmDelete('${b.filename}')" class="px-2 py-1 text-xs bg-red-900/50 hover:bg-red-800 rounded transition-all" title="Hapus">🗑️</button>
             </td>
@@ -314,6 +315,56 @@
         closeModal();
       } catch (e) {
         showToast('❌ Gagal hapus');
+      }
+    }
+
+    // Restore actions
+    let restoreFilename = '';
+    
+    function confirmRestore(filename, sourceDb) {
+      restoreFilename = filename;
+      const databases = ['zgold', 'zbengkel', 'zlaundry', 'zone', 'zpos', 'zgym', 'zbilliar', 'zabsen', 'zrooms', 'zresto', 'zmedics', 'zface', 'ztrader', 'zomet', 'zbarber'];
+      
+      const modal = document.getElementById('modal');
+      document.getElementById('modal-title').textContent = '🔄 Restore Backup';
+      document.getElementById('modal-body').innerHTML = `
+        <p class="mb-3">Restore <strong>${filename}</strong></p>
+        <p class="text-xs text-yellow-400 mb-3">⚠️ Data target akan ditimpa!</p>
+        <label class="text-sm text-gray-400">Target Database:</label>
+        <select id="restore-target" class="w-full mt-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm">
+          ${databases.map(db => `<option value="${db}" ${db === sourceDb ? 'selected' : ''}>${db}</option>`).join('')}
+        </select>
+      `;
+      document.getElementById('modal-progress').classList.add('hidden');
+      document.getElementById('modal-confirm').classList.remove('hidden');
+      document.getElementById('modal-confirm').onclick = () => executeRestore();
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    async function executeRestore() {
+      const targetDb = document.getElementById('restore-target').value;
+      
+      showModal('🔄 Restore', `Sedang restore ke ${targetDb}... Harap tunggu.`, null, true);
+      updateProgress(50, 'Restore berjalan...');
+      
+      try {
+        const res = await fetch(`/api/restore/${restoreFilename}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ targetDb })
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+          updateProgress(100, `✅ Berhasil restore ke ${targetDb}`);
+        } else {
+          updateProgress(0, `❌ Gagal: ${data.error}`);
+        }
+        setTimeout(closeModal, 2000);
+      } catch (e) {
+        updateProgress(0, '❌ Gagal: ' + e.message);
+        setTimeout(closeModal, 2000);
       }
     }
 
