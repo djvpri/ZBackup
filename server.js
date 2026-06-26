@@ -133,6 +133,7 @@ app.get('/api/diag', (req, res) => {
   const { execSync } = require('child_process');
   let pgdumpPath = 'not found';
   let pgdumpVersion = 'unknown';
+  let testBackup = 'unknown';
   try {
     pgdumpPath = execSync('which pg_dump', { encoding: 'utf8' }).trim();
   } catch {}
@@ -141,7 +142,14 @@ app.get('/api/diag', (req, res) => {
   } catch (e) {
     pgdumpVersion = e.message;
   }
-  res.json({ PGDUMP, PSQL, pgdumpPath, pgdumpVersion, nodeEnv: process.env.NODE_ENV });
+  // Test backup of zbarber (small DB)
+  try {
+    const result = execSync(`${PGDUMP} "postgresql://postgres:JHRHrtxcwLrhVClfmDOixlrJWLDlOHka@ballast.proxy.rlwy.net:38041/railway" --no-owner --no-privileges --clean --if-exists 2>&1 | head -5`, { encoding: 'utf8', timeout: 15000, env: { ...process.env, PGSSLMODE: 'require' } });
+    testBackup = 'OK: ' + result.substring(0, 200);
+  } catch (e) {
+    testBackup = 'FAIL: ' + (e.stderr || e.message).substring(0, 300);
+  }
+  res.json({ PGDUMP, PSQL, pgdumpPath, pgdumpVersion, testBackup });
 });
 
 // Helpers
