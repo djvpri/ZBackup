@@ -359,7 +359,7 @@ async function computeTableFingerprints(dbUrl) {
   const client = new Pool({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
   try {
     const { rows } = await client.query(`
-      SELECT schemaname, relname, reltuples::bigint AS row_count
+      SELECT schemaname, relname, n_live_tup AS row_count
       FROM pg_stat_user_tables
       WHERE schemaname = 'public'
       ORDER BY relname
@@ -367,12 +367,11 @@ async function computeTableFingerprints(dbUrl) {
     const fingerprints = {};
     for (const row of rows) {
       const sizeRes = await client.query(
-        `SELECT COALESCE(SUM(pg_column_size(t.*)), 0) AS col_size
-         FROM public."${row.relname.replace(/"/g, '""')}" t`
-      ).catch(() => ({ rows: [{ col_size: 0 }] }));
+        `SELECT pg_total_relation_size('public."${row.relname.replace(/"/g, '""')}"') AS total_size`
+      ).catch(() => ({ rows: [{ total_size: 0 }] }));
       fingerprints[row.relname] = {
         rows: row.row_count,
-        size: parseInt(sizeRes.rows[0].col_size) || 0,
+        size: parseInt(sizeRes.rows[0].total_size) || 0,
       };
     }
     return fingerprints;
