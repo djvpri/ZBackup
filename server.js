@@ -128,6 +128,22 @@ function auth(req, res, next) {
 app.use(express.json());
 app.use(auth);
 
+// Diagnostic endpoint
+app.get('/api/diag', (req, res) => {
+  const { execSync } = require('child_process');
+  let pgdumpPath = 'not found';
+  let pgdumpVersion = 'unknown';
+  try {
+    pgdumpPath = execSync('which pg_dump', { encoding: 'utf8' }).trim();
+  } catch {}
+  try {
+    pgdumpVersion = execSync(`${PGDUMP} --version`, { encoding: 'utf8' }).trim();
+  } catch (e) {
+    pgdumpVersion = e.message;
+  }
+  res.json({ PGDUMP, PSQL, pgdumpPath, pgdumpVersion, nodeEnv: process.env.NODE_ENV });
+});
+
 // Helpers
 function formatSize(bytes) {
   if (!bytes || bytes === 0) return '0 B';
