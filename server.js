@@ -303,6 +303,17 @@ app.get('/api/logs', (req, res) => {
   res.json({ logs: lines });
 });
 
+// Debug endpoint
+app.get('/api/debug', (req, res) => {
+  res.json({ 
+    pgdump: PGDUMP, 
+    psql: PSQL,
+    pgsslmode: process.env.PGSSLMODE || 'NOT SET',
+    nodeEnv: process.env.NODE_ENV,
+    dbsCount: Object.keys(DATABASES).length
+  });
+});
+
 // Static files
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('*', (req, res) => { res.sendFile(path.join(__dirname, 'public', 'index.html')); });
