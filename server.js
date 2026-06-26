@@ -186,7 +186,7 @@ app.get('/api/databases', (req, res) => {
 app.post('/api/backup/:db', async (req, res) => {
   const db = req.params.db;
   if (!DATABASES[db]) return res.status(404).json({ error: 'Database not found' });
-  const date = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const date = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
   const filename = `${db}_${date}.sql`;
   const filepath = path.join(BACKUP_DIR, filename);
   try {
@@ -209,7 +209,7 @@ app.post('/api/backup/:db', async (req, res) => {
 // POST /api/backup-all - Backup all
 app.post('/api/backup-all', async (req, res) => {
   const results = [];
-  const date = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const date = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
   for (const [key, db] of Object.entries(DATABASES)) {
     const filename = `${key}_${date}.sql`;
     const filepath = path.join(BACKUP_DIR, filename);
