@@ -8,6 +8,8 @@ RUN apt-get update && apt-get install -y curl gnupg2 lsb-release \
     && apt-get install -y postgresql-client-18 \
     && rm -rf /var/lib/apt/lists/*
 
+ENV PGSSLMODE=require
+
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
