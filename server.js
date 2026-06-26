@@ -343,6 +343,195 @@ app.get('/api/debug', (req, res) => {
   });
 });
 
+// ═══════════════════════════════════════════════════
+// INCREMENTAL BACKUP
+// ═══════════════════════════════════════════════════
+
+const META_FILE = path.join(BACKUP_DIR, '_incremental_meta.json');
+
+function loadMeta() {
+  try { return JSON.parse(fs.readFileSync(META_FILE, 'utf8')); } catch { return {}; }
+}
+function saveMeta(meta) { fs.writeFileSync(META_FILE, JSON.stringify(meta, null, 2)); }
+
+// Compute lightweight fingerprint per table (row_count + pg_column_size + schema_hash)
+async function computeTableFingerprints(dbUrl) {
+  const client = new Pool({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
+  try {
+    const { rows } = await client.query(`
+      SELECT schemaname, relname, reltuples::bigint AS row_count
+      FROM pg_stat_user_tables
+      WHERE schemaname = 'public'
+      ORDER BY relname
+    `);
+    const fingerprints = {};
+    for (const row of rows) {
+      const sizeRes = await client.query(
+        `SELECT COALESCE(SUM(pg_column_size(t.*)), 0) AS col_size
+         FROM public."${row.relname.replace(/"/g, '""')}" t`
+      ).catch(() => ({ rows: [{ col_size: 0 }] }));
+      fingerprints[row.relname] = {
+        rows: row.row_count,
+        size: parseInt(sizeRes.rows[0].col_size) || 0,
+      };
+    }
+    return fingerprints;
+  } finally { await client.end(); }
+}
+
+// Detect which tables changed since last backup
+function detectChanges(currentFingerprints, previousFingerprints) {
+  if (!previousFingerprints) return { all: true, tables: [], reason: 'no_previous_backup' };
+  const changed = [];
+  for (const [table, fp] of Object.entries(currentFingerprints)) {
+    const prev = previousFingerprints[table];
+    if (!prev) { changed.push(table); continue; } // new table
+    if (fp.rows !== prev.rows || Math.abs(fp.size - prev.size) > fp.size * 0.01) {
+      changed.push(table);
+    }
+  }
+  // Check for dropped tables
+  for (const table of Object.keys(previousFingerprints)) {
+    if (!currentFingerprints[table]) changed.push(table);
+  }
+  return { all: changed.length === 0, tables: changed, reason: changed.length === 0 ? 'no_changes' : 'changed_tables' };
+}
+
+function nowTs() { return new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19); }
+
+// Incremental backup for single database
+async function incrementalBackupDb(dbKey, db) {
+  const meta = loadMeta();
+  const dbMeta = meta[dbKey] || { lastFullBackup: null, fingerprints: {}, lastIncremental: null };
+  const date = nowTs();
+
+  // If no previous backup, do full
+  if (!dbMeta.lastFullBackup) {
+    const filename = `${dbKey}_${date}.sql`;
+    const filepath = path.join(BACKUP_DIR, filename);
+    try {
+      execSync(`"${PGDUMP}" "${db.url}" --no-owner --no-privileges --clean --if-exists -f "${filepath}"`, {
+        timeout: 120000, encoding: 'utf8', env: { ...process.env, PGSSLMODE: 'require' }
+      });
+      const size = fs.existsSync(filepath) ? fs.statSync(filepath).size : 0;
+      if (size > 0) {
+        const fp = await computeTableFingerprints(db.url);
+        await pool.query('INSERT INTO backup_history (database, filename, size_bytes, status) VALUES ($1, $2, $3, $4)', [dbKey, filename, size, 'success']).catch(() => {});
+        dbMeta.lastFullBackup = date;
+        dbMeta.lastIncremental = date;
+        dbMeta.fingerprints = fp;
+        meta[dbKey] = dbMeta;
+        saveMeta(meta);
+        return { database: dbKey, type: 'full', success: true, filename, size, sizeFormatted: formatSize(size), tables: Object.keys(fp).length };
+      }
+      return { database: dbKey, type: 'full', success: false, error: 'Empty file' };
+    } catch (e) {
+      await pool.query('INSERT INTO backup_history (database, filename, status, error_message) VALUES ($1, $2, $3, $4)', [dbKey, filename, 'failed', e.message]).catch(() => {});
+      return { database: dbKey, type: 'full', success: false, error: e.message };
+    }
+  }
+
+  // Compute current fingerprints & detect changes
+  const currentFp = await computeTableFingerprints(db.url);
+  const changes = detectChanges(currentFp, dbMeta.fingerprints);
+
+  if (changes.all) {
+    // No changes — skip backup, update fingerprint timestamp
+    meta[dbKey] = { ...dbMeta, lastCheck: date, fingerprints: currentFp };
+    saveMeta(meta);
+    return { database: dbKey, type: 'skip', success: true, reason: 'no_changes', tables: Object.keys(currentFp).length };
+  }
+
+  // Build incremental dump: schema + changed tables only
+  const filename = `${dbKey}_${date}_incr.sql`;
+  const filepath = path.join(BACKUP_DIR, filename);
+  try {
+    // Schema (full)
+    execSync(`"${PGDUMP}" "${db.url}" --no-owner --no-privileges --schema-only --clean --if-exists -f "${filepath}"`, {
+      timeout: 60000, encoding: 'utf8', env: { ...process.env, PGSSLMODE: 'require' }
+    });
+
+    // Data for changed tables only
+    const dataFile = filepath + '.data';
+    if (changes.tables.length > 0) {
+      const tableFlags = changes.tables.map(t => `--table="${t.replace(/"/g, '""')}"`).join(' ');
+      execSync(`"${PGDUMP}" "${db.url}" --no-owner --no-privileges --data-only --disable-triggers --column-inserts ${tableFlags} -f "${dataFile}"`, {
+        timeout: 120000, encoding: 'utf8', env: { ...process.env, PGSSLMODE: 'require' }
+      });
+
+      // Append data to schema file
+      if (fs.existsSync(dataFile)) {
+        const dataContent = fs.readFileSync(dataFile, 'utf8');
+        fs.appendFileSync(filepath, '\n' + dataContent);
+        fs.unlinkSync(dataFile);
+      }
+    }
+
+    const size = fs.existsSync(filepath) ? fs.statSync(filepath).size : 0;
+    if (size > 0) {
+      await pool.query('INSERT INTO backup_history (database, filename, size_bytes, status) VALUES ($1, $2, $3, $4)', [dbKey, filename, size, 'success']).catch(() => {});
+      // Update metadata: keep full backup as base, update fingerprints
+      dbMeta.lastIncremental = date;
+      dbMeta.fingerprints = currentFp;
+      meta[dbKey] = dbMeta;
+      saveMeta(meta);
+      return { database: dbKey, type: 'incremental', success: true, filename, size, sizeFormatted: formatSize(size), changedTables: changes.tables, totalTables: Object.keys(currentFp).length };
+    }
+    return { database: dbKey, type: 'incremental', success: false, error: 'Empty file' };
+  } catch (e) {
+    await pool.query('INSERT INTO backup_history (database, filename, status, error_message) VALUES ($1, $2, $3, $4)', [dbKey, filename, 'failed', e.message]).catch(() => {});
+    return { database: dbKey, type: 'incremental', success: false, error: e.message };
+  }
+}
+
+// API: Incremental backup single DB
+app.post('/api/incremental/:db', async (req, res) => {
+  const db = req.params.db;
+  if (!DATABASES[db]) return res.status(404).json({ error: 'Database not found' });
+  try {
+    const result = await incrementalBackupDb(db, DATABASES[db]);
+    res.json(result);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// API: Incremental backup all
+app.post('/api/incremental-all', async (req, res) => {
+  const results = [];
+  for (const [key, db] of Object.entries(DATABASES)) {
+    try {
+      const result = await incrementalBackupDb(key, db);
+      results.push(result);
+    } catch (e) {
+      results.push({ database: key, type: 'error', success: false, error: e.message });
+    }
+  }
+  const summary = { total: results.length, full: 0, incremental: 0, skipped: 0, failed: 0 };
+  results.forEach(r => {
+    if (!r.success) summary.failed++;
+    else if (r.type === 'full') summary.full++;
+    else if (r.type === 'incremental') summary.incremental++;
+    else if (r.type === 'skip') summary.skipped++;
+  });
+  res.json({ summary, results });
+});
+
+// API: Incremental backup status
+app.get('/api/incremental-status', (req, res) => {
+  const meta = loadMeta();
+  const status = {};
+  for (const [key, db] of Object.entries(DATABASES)) {
+    const dbMeta = meta[key] || {};
+    status[key] = {
+      name: db.name,
+      lastFullBackup: dbMeta.lastFullBackup || null,
+      lastIncremental: dbMeta.lastIncremental || null,
+      lastCheck: dbMeta.lastCheck || null,
+      trackedTables: dbMeta.fingerprints ? Object.keys(dbMeta.fingerprints).length : 0,
+    };
+  }
+  res.json(status);
+});
+
 // Static files
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('*', (req, res) => { res.sendFile(path.join(__dirname, 'public', 'index.html')); });
