@@ -1,5 +1,0 @@
-[phases.setup]
-nixPkgs = ["postgresql"]
-
-[start]
-cmd = "node server.js"
