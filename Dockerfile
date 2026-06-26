@@ -10,6 +10,10 @@ RUN apt-get update && apt-get install -y curl gnupg2 lsb-release \
 
 ENV PGSSLMODE=require
 
+# Ensure pg_dump is in PATH
+RUN ln -sf /usr/lib/postgresql/18/bin/pg_dump /usr/local/bin/pg_dump \
+    && ln -sf /usr/lib/postgresql/18/bin/psql /usr/local/bin/psql
+
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci

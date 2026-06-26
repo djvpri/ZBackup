@@ -8,8 +8,20 @@ const crypto = require('crypto');
 const app = express();
 const PORT = process.env.PORT || 3456;
 const BACKUP_DIR = '/data/workspace/backups';
-const PGDUMP = process.env.PGDUMP_PATH || '/usr/lib/postgresql/18/bin/pg_dump';
-const PSQL = process.env.PSQL_PATH || '/usr/lib/postgresql/18/bin/psql';
+function findBinary(name, candidates) {
+  for (const p of candidates) { if (fs.existsSync(p)) return p; }
+  return name; // fallback to PATH
+}
+const PGDUMP = process.env.PGDUMP_PATH || findBinary('pg_dump', [
+  '/usr/lib/postgresql/18/bin/pg_dump',
+  '/usr/lib/postgresql/17/bin/pg_dump',
+  '/usr/bin/pg_dump',
+]);
+const PSQL = process.env.PSQL_PATH || findBinary('psql', [
+  '/usr/lib/postgresql/18/bin/psql',
+  '/usr/lib/postgresql/17/bin/psql',
+  '/usr/bin/psql',
+]);
 
 // ZBackup's own database
 const ZBACKUP_DB_URL = process.env.ZBACKUP_DATABASE_URL || 'postgresql://postgres:byqtvULmVrhVVkGZspyUguEAARYGglSc@thomas.proxy.rlwy.net:59427/railway';
