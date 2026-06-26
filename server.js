@@ -8,8 +8,8 @@ const crypto = require('crypto');
 const app = express();
 const PORT = process.env.PORT || 3456;
 const BACKUP_DIR = '/data/workspace/backups';
-const PGDUMP = '/usr/lib/postgresql/18/bin/pg_dump';
-const PSQL = '/usr/lib/postgresql/18/bin/psql';
+const PGDUMP = process.env.PGDUMP_PATH || '/usr/lib/postgresql/18/bin/pg_dump';
+const PSQL = process.env.PSQL_PATH || '/usr/lib/postgresql/18/bin/psql';
 
 // ZBackup's own database
 const ZBACKUP_DB_URL = process.env.ZBACKUP_DATABASE_URL || 'postgresql://postgres:byqtvULmVrhVVkGZspyUguEAARYGglSc@thomas.proxy.rlwy.net:59427/railway';
