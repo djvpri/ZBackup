@@ -139,9 +139,18 @@ function getBackupsFromDisk() {
     .filter(f => f.endsWith('.sql'))
     .map(f => {
       const stat = fs.statSync(path.join(BACKUP_DIR, f));
-      const parts = f.replace('.sql', '').split('_');
-      const timestamp = parts.slice(-2).join('_');
-      const dbName = parts.slice(0, -2).join('_');
+      const base = f.replace('.sql', '');
+      // Match: dbname_YYYY-MM-DD_HHMM or dbname_YYYY-MM-DDTHH-MM-SS
+      const m = base.match(/^(.+)_(\d{4}-\d{2}-\d{2})[T_](\d{2}[-:]?\d{2}[-:]?\d{2})$/);
+      let dbName, timestamp;
+      if (m) {
+        dbName = m[1];
+        timestamp = m[2] + '_' + m[3].replace(/:/g, '-');
+      } else {
+        const parts = base.split('_');
+        timestamp = parts.slice(-2).join('_');
+        dbName = parts.slice(0, -2).join('_');
+      }
       return { filename: f, database: dbName, size: stat.size, sizeFormatted: formatSize(stat.size), createdAt: stat.mtime, timestamp };
     })
     .sort((a, b) => b.createdAt - a.createdAt);
