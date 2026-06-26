@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const app = express();
 const PORT = process.env.PORT || 3456;
 const BACKUP_DIR = '/data/workspace/backups';
+if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
 function findBinary(name, candidates) {
   for (const p of candidates) { if (fs.existsSync(p)) return p; }
   return name; // fallback to PATH
